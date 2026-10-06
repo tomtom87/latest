@@ -4,7 +4,7 @@ Say **"latest"** (or "catch me up", "check my inbox", "what's new") and your ass
 
 1. Read your new Gmail.
 2. Check your Google Calendar for clashes and free slots.
-3. Sort every email into 🔴 Urgent, 🟡 Needs a reply, ⚪/🔵 FYI or 🗑 Noise.
+3. Sort every email into 🔴 Urgent, 🟡 Needs a reply, ⚪/🔵 FYI or 🗑 Noise (optionally with Jev and TypeLLM, see [Typed version](#typed-version-jev-and-typellm-modes)).
 4. Draft replies in your voice, using your real prices, policies and payment links.
 5. Label each thread it has handled so nothing gets processed twice.
 6. Keep a small work log (a Gmail draft that is never sent) so it remembers between runs.
@@ -12,21 +12,71 @@ Say **"latest"** (or "catch me up", "check my inbox", "what's new") and your ass
 
 **It never sends email.** Every reply is saved as a draft in Gmail for you to review and send. It also never deletes emails or creates calendar events.
 
-## Two versions
+## Three versions
 
-| | **All-in-one** (`SKILL.md`) | **Generic + services file** (`generic/`) |
-|---|---|---|
-| Files | One file | `SKILL.md` + `services.md` |
-| Business info | Written into the skill | Kept in `services.md`, read on every run |
-| Inbox | Marks handled emails as read | Leaves read/unread as it was, labels only |
-| Labels | `Claude/Digested`, `Claude/Drafted` | `Claude/Digested`, `Claude/Replied` |
-| Work log | `[Claude Log]` draft, one line per action, 30 days | `[Claude] Latest — working log`, open items + last 5 runs |
-| Payment links | Built in (Stripe links per service) | Optional, from `services.md` |
-| Best for | A single business with a fixed price list | Anyone. Edit prices without touching the skill |
+| | **All-in-one** (`SKILL.md`) | **Generic + services file** (`generic/`) | **Typed** (`typed/`, optional) |
+|---|---|---|---|
+| Files | One file | `SKILL.md` + `services.md` | `SKILL.md` + `triage.py` + `receipts.py` |
+| Business info | Written into the skill | Kept in `services.md`, read on every run | Written into the skill |
+| How email is sorted | The assistant decides | The assistant decides | Your choice of mode: the assistant, [Jev](https://typesafe.ai), [TypeLLM](https://typellm.ai), or Jev + TypeLLM |
+| Inbox | Marks handled emails as read | Leaves read/unread as it was, labels only | Marks handled emails as read |
+| Labels | `Claude/Digested`, `Claude/Drafted` | `Claude/Digested`, `Claude/Replied` | `Claude/Digested`, `Claude/Drafted` |
+| Work log | `[Claude Log]` draft, one line per action, 30 days | `[Claude] Latest — working log`, open items + last 5 runs | Same as all-in-one |
+| Payment links | Built in (Stripe links per service) | Optional, from `services.md` | Built in |
+| Runs scripts | No | No | Yes, except in light mode. Needs `uv` and API keys |
+| Best for | A single business with a fixed price list | Anyone. Edit prices without touching the skill | Trying typed LLM sorting on your inbox, in Claude Code or Codex |
 
-The root `SKILL.md` is a worked example for a made-up shop, **Rubicon Computer Repairs**. Replace its business details with yours, or use the interview prompt below to do it for you.
+The root `SKILL.md` is a worked example for a made-up shop, **Rubicon Computer Repairs**. Replace its business details with yours, or use the interview prompt below to do it for you. `typed/SKILL.md` is the same skill with the sorting modes added.
 
 Not sure? Use the **generic** version. You only ever edit `services.md`.
+
+## Typed version: Jev and TypeLLM modes
+
+The typed version adds a word after `latest` to choose how emails are sorted. Everything else (calendar check, drafts, labels, work log, digest) is the same in every mode.
+
+| Command | How emails are sorted | Needs |
+|---|---|---|
+| `/latest` or `/latest light` | The assistant reads and sorts them. No scripts run. | Nothing extra |
+| `/latest full` | Jev takes a fast first pass and closes clear FYI, noise and phishing emails. TypeLLM reads the rest. | `TYPESAFE_API_KEY`, `TYPELLM_API_KEY` |
+| `/latest typellm` | TypeLLM reads every email. | `TYPELLM_API_KEY` |
+| `/latest jev` | Jev sorts every email. Fastest, but doesn't extract times or amounts. | `TYPESAFE_API_KEY` |
+
+The script modes sort into five buckets: 🔴 urgent, 🟡 needs reply, ⚪ FYI, 🗑 noise and 🎣 phishing. TypeLLM also returns the date or time the sender asked for (copied word for word) and the main money amount, which the skill uses for calendar checks and invoice replies. The digest ends with a line showing the mode and how many emails each model sorted. If a script fails, the skill falls back to light mode and says so.
+
+On a 27-email test set for a repair shop:
+
+| Mode | Correct | Time | TypeLLM calls |
+|---|---|---|---|
+| full | 26/27 | 11 s | 18 |
+| typellm | 26/27 | 9 s | 27 |
+| jev | 25/27 | 2.5 s | 0 |
+
+Results can vary a little between runs, even with a fixed seed.
+
+**Receipts and invoices.** The Gmail connector can't download attachments. Save them to your computer and ask the skill to read them, or run the script yourself. It reads PDFs, JPGs and PNGs into vendor, number, date, subtotal, tax, total and line items:
+
+```bash
+uv run ~/.claude/skills/latest/receipts.py ~/Downloads/receipts/
+```
+
+**Setup**
+
+1. Install [uv](https://docs.astral.sh/uv/). The scripts declare their own Python dependencies, so there is nothing else to install.
+2. Get API keys from [TypeLLM](https://typellm.ai/dashboard/keys) and [TypeSafe](https://typesafe.ai) (for Jev), and add them to your shell config, for example `~/.zshrc`:
+
+   ```bash
+   export TYPELLM_API_KEY="tl-sk-..."
+   export TYPESAFE_API_KEY="..."
+   ```
+
+   In Claude Code you can put them in the `"env"` block of `~/.claude/settings.json` instead.
+3. Install the folder as `latest`:
+
+   ```bash
+   mkdir -p ~/.claude/skills/latest && cp latest/typed/* ~/.claude/skills/latest/
+   ```
+
+The prompts in `triage.py` describe a computer repair shop. Change the wording to your business before using it for real. The script modes need an assistant that can run local commands (Claude Code or Codex). claude.ai, ChatGPT and Grok can still use light mode.
 
 ## What you need
 
@@ -51,6 +101,7 @@ First get your personalised files, either with [`INSTALL_PROMPT.md`](INSTALL_PRO
 3. Put the files in a folder called `latest`, and zip that folder if you're uploading it:
    - All-in-one: `latest/SKILL.md`
    - Generic: `latest/SKILL.md` and `latest/services.md` (both from `generic/`)
+   - Typed: `latest/SKILL.md`, `latest/triage.py` and `latest/receipts.py` (all from `typed/`)
 
 ### 1. Claude
 
@@ -123,7 +174,7 @@ Grok Skills need SuperGrok or SuperGrok Heavy.
    [[skills]]
    name = "latest"
    source = "your-github-name/latest"
-   path = "generic"   # remove this line for the all-in-one version
+   path = "generic"   # "typed" for the typed version, remove this line for the all-in-one version
    ```
 
 3. Install:
